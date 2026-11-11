@@ -1,21 +1,64 @@
-const express = require('express');
-const cors = require('cors');
+const http = require('http');
 
-const app = express();
 const PORT = 5000;
 
-app.use(cors());
-app.use(express.json());
+// Központi rendszerállapot (a .NET starter állapotmodelljének megfelelően)
+const systemState = {
+  status: 'online', // 'online' | 'degraded'
+  uptimeStart: Date.now(),
+  checksCount: 0,
+  services: {
+    database: 'OK',
+    aiEngine: 'READY'
+  }
+};
 
-// Állapot lekérdező végpont
-app.get('/api/status', (req, res) => {
-  res.json({
-    online: true,
-    statusText: 'Rendszer aktív • AI motor kész',
-    timestamp: new Date().toLocaleTimeString('hu-HU')
-  });
+const server = http.createServer((req, res) => {
+  // CORS fejlécek beállítása a Vite kliens számára
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Preflight kérések azonnali kezelése
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
+  // Health-check és közös állapot végpont
+  if (req.url === '/api/health' && req.method === 'GET') {
+    systemState.checksCount += 1;
+    const uptimeSeconds = Math.floor((Date.now() - systemState.uptimeStart) / 1000);
+
+    const payload = {
+      status: systemState.status,
+      uptime: uptimeSeconds,
+      checksCount: systemState.checksCount,
+      services: systemState.services,
+      timestamp: new Date().toISOString()
+    };
+
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(payload));
+    return;
+  }
+
+  // Állapot váltása teszteléshez (pl. szimulált hiba / helyreállítás)
+  if (req.url === '/api/toggle-status' && req.method === 'POST') {
+    systemState.status = systemState.status === 'online' ? 'degraded' : 'online';
+    systemState.services.aiEngine = systemState.status === 'online' ? 'READY' : 'BUSY';
+
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ status: systemState.status }));
+    return;
+  }
+
+  // 404 válasz minden más útvonalra
+  res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify({ error: 'Endpoint not found' }));
 });
 
-app.listen(PORT, () => {
-  console.log(`A backend szerver sikeresen fut: http://localhost:${PORT}`);
+server.listen(PORT, () => {
+  console.log(`Tiszta Node.js HTTP szerver fut: http://localhost:${PORT}`);
 });
